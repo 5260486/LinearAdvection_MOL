@@ -1,5 +1,5 @@
 # LinearAdvection_MOL
-Linear 1D Advection equation by using the Method of Lines.
+Linear 1D Advection equation by using the Method of Lines. To solve the time delay when water flowing in a pipe.
 
 There are three methods to spatial derivative.
 
