@@ -8,7 +8,6 @@ clc; clear; close all;
 
 %% Parameters
 v=1.25;
-d=1.0;
 zl=1.0;
 n=21;
 dz=zl/(n-1);
@@ -23,7 +22,14 @@ ifd=2;
 %% Initial Condition
 % Initial, final times, integration interval, number of Euler
 % steps for each output
-t=0.0; tf=100.0; h=0.0001; nout=100;
+t=0.0; tf=100.0; 
+t1=0;
+t2=0;
+h1=1e-5; h2=0.1;
+nout1=(tf-t)/h1;        % 快变
+nout2=(tf-t)/h2;        % 慢变
+d=nout1/nout2;
+
 t0=0;
 t_in_Start=0.25;       % t_in_Start=pipeLength/m_flow_Start*rho*dh^2/4*pi;
 x0=0;                      % x初始位置是0
@@ -40,58 +46,61 @@ x=zl;
 f=v;
 
 %% Integrate until t = tf
-    while t < tf*1.0001
-    % Monitor solution by displaying t
-        current_t=t;
-        current_Length=x+x0;
-    % Write selected output, including analytical solution and difference
-    % between numerical and analytical solutions
-        
-        if current_Length-pipe_Length >1e-6
-            time_out=current_t;
-            break;
-        end
-    
+tic
         % Take nout Euler steps
-        for iout=1:nout
-            % Temporal derivatives
+        for iout2=1:nout2
+            % Monitor solution by displaying t
+            current_t=t1;
+            current_Length=x+x0;
+            if abs(current_Length-pipe_Length) <1e-6
+                time_out=current_t;
+                break;
+            end
             
-            % Centered approximations
-            if ifd==1
+            if ifd==1       % Centered approximations
             % Boundary condition at z = 0
                 Tin(1)=t0+t_in_Start;
             % Spatial derivative
                 [Tin_dz]=dss002(0.0,zl,n,Tin);
-            % Temporal derivative
-                Tin_dt(1)=t0;
-                for i=2:n
-                    Tin_dt(i)=-v*Tin_dz(i);
-                end
             % End of three point centered approximation
             end
             
-            % Two point upwind approximation
-            if(ifd==2)
+            if ifd==2      % Two point upwind approximation
                 Tin(1)=t0+t_in_Start;
                 [Tin_dz]=dss012(0.0,zl,n,Tin,v);
-                Tin_dt(1)=t0;
-                for i=2:n
-                    Tin_dt(i)=-v*Tin_dz(i);
-                end
             end
             
-        % Take Euler step   //造成currentlength，currenttime会多出来，与循环次数nout有关，跟步长h有关
+            % Temporal derivative
+            Tin_dt(1)=t0;
+            for i=2:n
+                Tin_dt(i)=-v*Tin_dz(i);     % f(t,y)=dy/dt, v是常量，和时间无关，Tin_dz也和时间无关
+            end
+            
+            for iout1=1:d
+            % Take Euler step   //造成currentlength，currenttime会多出来，与循环次数nout有关，跟步长h有关
+                x=x+f*h1;         % 用小步长
+                t1=t1+h1;
+            end
+
             for i=1:n
-                Tin(i)=Tin(i)+Tin_dt(i)*h;      % h用小步长
+                Tin(i)=Tin(i)+Tin_dt(i)*h2;      % 用大步长
             end
-            x=x+f*h;         % 可用大步长
-            
-            t=t+h;
+            t2=t2+h2;
+
+%             for i=1:n
+%                 k1=Tin_dt(i);
+%                 k2=Tin_dt(i)+h*k1/2;
+%                 k3=Tin_dt(i)+h*k2/2;
+%                 k4=Tin_dt(i)+h*k3;
+%                 Tin(i)=Tin(i)+1/6*(k1+2*k2+2*k3+k4)*h;
+%             end
+
             zl=x;               % 但这样不是动态的
+            t=t1;
         % Next Euler step    
         end
-    end
-    
+        
+toc    
 %% Centered approximations
 
 function [ux]=dss002(xl,xu,n,u)
