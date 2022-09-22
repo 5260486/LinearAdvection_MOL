@@ -38,9 +38,9 @@ ifd=1;
 %% Initial Condition
 % Initial, final times, integration interval, number of Euler
 % steps for each output
-t=0.0; tf=600.0; 
-h=0.1;
-nout=(tf-t)/h;
+t=0.0; tf=875.0; 
+nout=500;
+h=(tf-t)/nout;
 
 t_in_Start=min(0,39/0.589*1000*0.05248^2/4*pi);       % t_in_Start=pipeLength/m_flow_Start*rho*dh^2/4*pi;   
 t_out_Start=min(-0,39/0.589*1000*0.05248^2/4*pi);    
@@ -58,27 +58,28 @@ x=0;
 TimeSpan=PipeData(:,1);
 inletT=inletTemperature(1);
 delayInletTemperature=[];
-outletTemperature=0;
+outletTemperature=[];
 %% Integrate until t = tf
 % calculate the time delay,v(x,t)=inletTime(x,t)
-
+for j=1:length(TimeSpan)
     % Take nout Euler steps
-for iout=1:nout
+    for iout=1:nout
             % Monitor solution by displaying x
             currentTime=t;
             currentLength=x;
             if currentLength>=PipeLength
-                TimeDelay=Timein(1);
+                TimeDelay=Timein(1)-Timein(n);
+                delayInletTemperature(end+1)=Temperaturein(n);               
                 break;
             end
             
             if ifd==1       % Centered approximations
             % Boundary condition at z = 0
                 Timein(1)=currentTime;
-
+                Temperaturein(1)=inletTemperature(j);  
             % Spatial derivative
                 [Timein_dz]=dss002(0.0,zl,n,Timein);
-
+                [Temperaturein_dz]=dss002(0.0,zl,n,Temperaturein);
             % End of three point centered approximation
             end
             
@@ -89,9 +90,10 @@ for iout=1:nout
             
             % Temporal derivative
             Timein_dt(1)=0;
-
+            Temperaturein_dt(1)=0;
             for i=2:n
                 Timein_dt(i)=-func(x,t)*Timein_dz(i);
+                Temperaturein_dt(i)=-func(x,t)*Temperaturein_dz(i);
             end            
 
             % Take Euler step                
@@ -99,68 +101,74 @@ for iout=1:nout
 
             for i=1:n
                 Timein(i)=Timein(i)+Timein_dt(i)*h;
+                Temperaturein(i)=Temperaturein(i)+Temperaturein_dt(i)*h;
             end
         t=t+h;
-end
+    end
+    t=0;
+    x=0;
+    for i=1:n
+        Timein(i)=t0;
+        Temperaturein(i)=Temperaturein(n);
+    end
+end  
+
 
 %% Calculate the outlet temperature
-outTime=0;
-outletTem=[];
+delayInletTemperature=delayInletTemperature';
+h2=0.01;
+outTime=[];
+outletTem=[initialTemperature,initialTemperature];
+t=0;
 
-for j=1:length(TimeSpan)      
-    
-    if TimeSpan(j)<TimeDelay
-        delayInletTemperature(j)=initialTemperature;
-        count=j;
-    else
-        num=j-count+1;
-        delayInletTemperature(end+1)=inletTemperature(num);
-    end
-
-    t=0;      
-    inletT=delayInletTemperature(j);
-
-    for iout=1:nout
-        
-        if ifd==1
-             Temperaturein(1)=inletT;          
-             [Temperaturein_dz]=dss002(0.0,zl,n,Temperaturein);
-        end
-
-        Temperaturein_dt(1)=0;
-
-        for i=2:n
-            Temperaturein_dt(i)=-func(x,t)*Temperaturein_dz(i);
-        end
-
-        for i=1:n
-            Temperaturein(i)=Temperaturein(i)+Temperaturein_dt(i)*h;
-        end
-        
-        t=t+h;
-
-        if  t>(TimeDelay) &&  t>outTime(end) 
-            inletT=Temperaturein(n);
+for j=1:length(TimeSpan)          
+count=0;
+    while t<tf
+                
+        if  t>=TimeDelay       
             tau=max(0,t-TimeDelay-TimeSpan(j));
-            outletTem(end+1)=ambTemperature+(Temperaturein(n)-ambTemperature)*exp(-tau/tauRC);
-            
-            if abs(outletTem(end)-delayInletTemperature(j))<1e-2
-                outletTemperature(end+1)=outletTem(end);
-                outTime(end+1)=t;
-                break;
+            if tau >0
+                outletTem(end+1)=ambTemperature+(delayInletTemperature(j)-ambTemperature)*exp(-tau/tauRC);
+                
+                if abs(outletTem(end)-outletTem(end-1:end))<1e-2
+                        count=count+h2;
+                end
+                if count>7
+                    outletTemperature(end+1)=outletTem(end);
+                    outTime(end+1)=t;
+                    t=t+h2;
+                    break;
+                end
             end
-            
-        end
 
+        end
+        t=t+h2;
     end
-     
+
 end    
 
 %% »æÍ¼
 measureTemperature=PipeData(:,4);
-outTime(1)=[];
-outletTemperature(1)=[];
-plot(TimeSpan,inletTemperature,'black-.',TimeSpan,delayInletTemperature,'red--', ...
+outletTem(1:2)=[];
+delayInletTemperature=[initialTemperature;delayInletTemperature];
+delayInletTimeSpan=[0;TimeSpan+TimeDelay];
+for k =1:length(delayInletTimeSpan)
+    if delayInletTimeSpan(k)>600
+        delayInletTimeSpan(k:end)=[];
+        delayInletTemperature(k:end)=[];
+        break;
+    end
+end
+outletTemperature=[initialTemperature,outletTemperature];
+outTime=[0,outTime];
+for k=1:length(outTime)
+    if outTime(k)>600
+        outTime(k:end)=[];
+        outletTemperature(k:end)=[];
+        break;
+    end
+end
+plot(TimeSpan,inletTemperature,'black-.',delayInletTimeSpan,delayInletTemperature,'red--', ...
         outTime,outletTemperature,'green',TimeSpan,measureTemperature,'blue');
 
 %% v(t)
