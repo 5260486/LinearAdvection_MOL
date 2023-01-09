@@ -8,6 +8,7 @@ clc; clear; close all;
 
 %% Parameters
 v=0.589/1000/pi/0.05248^2*4;
+% v=1.257/1000/pi/0.05248^2*4;
 zl=39;
 n=21;
 dz=zl/(n-1);
@@ -20,6 +21,7 @@ tauRC=R*C;
 
 ambTemperature=291-273.15;
 initialTemperature=18.2;
+% initialTemperature=27.7;
 
 % 加载管道入口及出口温度数据
 % 第一列：时刻/s；第二列：质量流量kg/s；
@@ -38,9 +40,22 @@ ifd=1;
 %% Initial Condition
 % Initial, final times, integration interval, number of Euler
 % steps for each output
-t=0.0; tf=875.0; 
-nout=500;
-h=(tf-t)/nout;
+
+% PFE
+PFE_k=2;
+PFE_M=3;
+PFE_s=PFE_k+PFE_M+1;
+% PRK2
+PRK_k=1;
+PRK_M=6;               %0~7.5
+alpha=(PFE_M+1+2*PRK_k-1/PFE_M*PFE_s)/(2*(PFE_M+1+PRK_k));
+% PRK_s=2*(PFE_k+1);
+PRK_s=PRK_k+PRK_M+1;
+
+t=0.0; tf=875.0;
+% t=0.0;tf=900;
+nout=1e4;
+h0=(tf-t)/nout;
 
 t_in_Start=min(0,39/0.589*1000*0.05248^2/4*pi);       % t_in_Start=pipeLength/m_flow_Start*rho*dh^2/4*pi;   
 t_out_Start=min(-0,39/0.589*1000*0.05248^2/4*pi);    
@@ -65,7 +80,7 @@ outletTemperature=[];
 tic
 for j=1:length(TimeSpan)
     % Take nout Euler steps
-    for iout=1:nout
+    for iout=1:nout/(h0*PFE_s)
             % Monitor solution by displaying x
             currentTime=t;
             currentLength=x;
@@ -96,18 +111,96 @@ for j=1:length(TimeSpan)
             for i=2:n
                 Timein_dt(i)=-func(x,t)*Timein_dz(i);
                 Temperaturein_dt(i)=-func(x,t)*Temperaturein_dz(i);
-            end            
-
-            % Take Euler step                
-                x=x+h*func(x,t);
-
-            for i=1:n
-                Timein(i)=Timein(i)+Timein_dt(i)*h;
-                Temperaturein(i)=Temperaturein(i)+Temperaturein_dt(i)*h;            %这是一组ODE，后面的变化速率要远远慢于前面
             end
-                  
-        t=t+h;
+            
+            % Take Euler step
+                
+%                 timeinArray1=zeros(s,n);
+%                 temperatureinArray1=zeros(s,n);
+%                 temperatureinArray2=zeros(s,n);
+%                 for i=1:s
+%                     Timein=Timein+Timein_dt*h_mincro;         %这是一组ODE，后面的变化速率要远远慢于前面
+%                     if i==1                
+%                         t1(end+1)=t+h_mincro;
+%                         Temperaturein1=Temperaturein+Temperaturein_dt*h_mincro;
+%                     else
+%                         t1(end+1)=t1(i-1)+h_mincro;
+%                         Temperaturein1=Temperaturein1+Temperaturein_dt*h_mincro;
+%                     end
+%                     timeinArray1(i,:)=Timein;
+%                     temperatureinArray1(i,:)=Temperaturein1;
+%                 end
+% 
+%                 dt=tSpan(iout)-t1(end);
+%                 del1=t1(end)-t1(end-1);
+%                 dx1=(temperatureinArray1(end,:)-temperatureinArray1(end-1,:))/del1;
+%                 x_int=temperatureinArray1(end,:)+(dt-(t1(end)-t1(1)))*del1;
+% 
+%                 for i=1:s               
+%                      if i==1
+%                          t2(end+1)=tSpan(1)+dt+h_mincro;
+%                          Temperaturein2=x_int+Temperaturein_dt*h_mincro;
+%                      else
+%                          t2(end+1)=t2(i-1)+h_mincro;
+%                          Temperaturein2=Temperaturein2+Temperaturein_dt*h_mincro;
+%                      end
+%                     temperatureinArray2(i,:)=Temperaturein2;
+%                 end
+% 
+%                 del2=t2(end)-t2(end-1);
+%                 dx2=(temperatureinArray2(end,:)-temperatureinArray2(end-1,:))/del2;
+% 
+%                 Temperaturein=temperatureinArray1(end,:)+dt*(dx1+dx2)/2;
+%             x=x+h_maxcro*func(x,t);
+%             t=t+h_maxcro;
+%             t1=[];
+%             t2=[];
+           
+            % PFE innner step: from y(n)=Temperaturein to
+            % y(n+k+1)=Temperaturein_（nk+1）
+            for i=1:PFE_k+1
+                if i==1 
+                    Timein_n=Timein+Timein_dt*h0;
+                    Temperaturein_n=Temperaturein+Temperaturein_dt*h0;
+                else
+                    Timein_n=Timein_n+Timein_dt*h0;
+                    Temperaturein_n=Temperaturein_n+Temperaturein_dt*h0;
+                end
+                if i==PFE_k
+                    Timein_nk=Timein_n;
+                    Temperaturein_nk=Temperaturein_n;
+                end
+            end
+            
+            Temperaturein_dt1=(Temperaturein_n-Temperaturein_nk)/h0;
+            Temperaturein_ns=Temperaturein_n+PFE_M*h0*Temperaturein_dt1;
+            Timein_dt1=(Timein_n-Timein_nk)/h0;
+            Timein_ns=Timein_n+PFE_M*h0*Timein_dt1;    %PFE, y(n+s)
+            
+            % from y(n+s) to y(n+s+k1+1)
+            for i=1:PRK_k+1
+                if i==1
+                    Timein_nsk1=Timein_ns+Timein_dt*h0;
+                    Temperaturein_nsk1=Temperaturein_ns+Temperaturein_dt*h0;
+                else
+                    Timein_nsk1=Timein_nsk1+Timein_dt*h0;
+                    Temperaturein_nsk1=Temperaturein_nsk1+Temperaturein_dt*h0;
+                end
+                if i==PRK_k
+                    Timein_nsk=Timein_nsk1;
+                    Temperaturein_nsk=Temperaturein_nsk1;
+                end
+            end
+            
+            Timein_dt2=(Timein_nsk1-Timein_nsk)/h0;
+            Timein=Timein+PRK_M*h0*(alpha*Timein_dt1+(1-alpha)*Timein_dt2); 
+            Temperaturein_dt2=(Temperaturein_nsk1-Temperaturein_nsk)/h0;
+            Temperaturein=Temperaturein+PRK_M*h0*(alpha*Temperaturein_dt1+(1-alpha)*Temperaturein_dt2);            % PRK outer steps
+
+            x=x+h0*PFE_s*func(x,t);
+            t=t+h0*PFE_s;
     end
+    
     t=0;
     x=0;
     for i=1:n
@@ -119,10 +212,10 @@ end
 toc
 %% Calculate the outlet temperature
 delayInletTemperature=delayInletTemperature';
-h2=0.01;
 outTime=[];
 outletTem=[initialTemperature,initialTemperature];
 t=0;
+h2=0.01;
 
 for j=1:length(TimeSpan)          
 count=0;
@@ -136,7 +229,7 @@ count=0;
                 if abs(outletTem(end)-outletTem(end-1:end))<1e-2
                         count=count+h2;
                 end
-                if count>7
+                if count>9.5
                     outletTemperature(end+1)=outletTem(end);
                     outTime(end+1)=t;
                     t=t+h2;
@@ -176,7 +269,8 @@ plot(TimeSpan,inletTemperature,'black-.',delayInletTimeSpan,delayInletTemperatur
 
 %% v(t)
 function dx=func(x,t)
-v=0.589/1000/pi/0.05248^2*4;      
+v=0.589/1000/pi/0.05248^2*4; 
+% v=1.257/1000/pi/0.05248^2*4; 
 dx=v;
 end
 %% Centered approximations

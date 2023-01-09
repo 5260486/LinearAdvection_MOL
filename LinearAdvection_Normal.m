@@ -5,180 +5,112 @@
 %
 % Using the Method of Lines
 clc; clear; close all; 
-
 %% Parameters
 v=0.589/1000/pi/0.05248^2*4;
-zl=39;
+zl=1.0;
 n=21;
 dz=zl/(n-1);
 
-R=2.1641;                   % (m`K)/W,  Thermal resistance per unit length from fluid to boundary temperature
-Cp=4200;            % J/(kg.K), 水的比热容
-A=0.05248^2*4;          %管道横截面积
-C=A*Cp*1000;
+R=2.1641;
+C=500;
 tauRC=R*C;
-
-ambTemperature=291-273.15;
-initialTemperature=18.2;
-
-% 加载管道入口及出口温度数据
-% 第一列：时刻/s；第二列：质量流量kg/s；
-% 第三列：出口管道温度℃；第四列：出口水温；
-% 第五列：入口管道温度；第六列：入口水温
-PipeData=load('E:\\programs\\matlab\\LinearAdvection_MOL-main\\DataULg2.txt');
-inletTemperature=PipeData(:,6);
-
+T_in=18.8;
+T_amb=291-273.15;
 %% Select three point, finite differencing (FD) of spatial derivative
 % ifd = 1: Centered approximations
 % ifd = 2: Two point upwind approximation
 % ifd = 3: Five point, biased upwind approximation
 % ifd = 4: van Leer flux limiter
-ifd=1;
+ifd=2;
 
 %% Initial Condition
 % Initial, final times, integration interval, number of Euler
 % steps for each output
-t=0.0; tf=875.0; 
-nout=500;
-h=(tf-t)/nout;
+t=0.0; tf=200.0; 
+t1=0;
+t2=0;
+h1=1e-5; h2=0.1;
+nout1=(tf-t)/h1;        % 快变
+nout2=(tf-t)/h2;        % 慢变
+d=nout1/nout2;
 
-t_in_Start=min(0,39/0.589*1000*0.05248^2/4*pi);       % t_in_Start=pipeLength/m_flow_Start*rho*dh^2/4*pi;   
-t_out_Start=min(-0,39/0.589*1000*0.05248^2/4*pi);    
+t_in_Start=min(0,39/0.589*1000*0.05248^2/4*pi);       % t_in_Start=pipeLength/m_flow_Start*rho*dh^2/4*pi;      39/0.589*1000*0.05248^2/4*pi
+    
 t0=t+t_in_Start;
 
-PipeLength=39;     
+pipe_Length=39;     
 
-% Initial conditions
+% Initial conditions     tin(x,0)=t0(x)=t0
 for i=1:n
-    Timein(i)=t0;
-    Temperaturein(i)=initialTemperature;
+    Tin(i)=t0;
 end
 x=0;
-
-TimeSpan=PipeData(:,1);
-inletT=inletTemperature(1);
-delayInletTemperature=[];
-outletTemperature=[];
+%% x与v的关系
+% dx/dt=f(t,x)=v
+% x(t0)=x0;
+f=v;
 
 %% Integrate until t = tf
-% calculate the time delay,v(x,t)=inletTime(x,t)
 tic
-for j=1:length(TimeSpan)
-    % Take nout Euler steps
-    for iout=1:nout
-            % Monitor solution by displaying x
-            currentTime=t;
-            currentLength=x;
-            if currentLength>=PipeLength
-                TimeDelay=Timein(1)-Timein(n);
-                delayInletTemperature(end+1)=Temperaturein(n);               
+        % Take nout Euler steps
+        for iout2=1:nout2
+            % Monitor solution by displaying t
+            current_t=t;
+            current_Length=x;
+            
+            if abs(current_Length-pipe_Length) <1e-2
+                time_out=Tin(1);
+                tau=time_out-t0;
+                T_out=T_amb+(T_in-T_amb)*exp(-tau/tauRC);
                 break;
             end
             
             if ifd==1       % Centered approximations
-            % Boundary condition at z = 0
-                Timein(1)=currentTime;
-                Temperaturein(1)=inletTemperature(j);  
+            % Boundary condition at z = 0        tin(x=0,t)=t
+                Tin(1)=t;      
             % Spatial derivative
-                [Timein_dz]=dss002(0.0,zl,n,Timein);
-                [Temperaturein_dz]=dss002(0.0,zl,n,Temperaturein);
+                [Tin_dz]=dss002(0.0,zl,n,Tin);
             % End of three point centered approximation
             end
             
             if ifd==2      % Two point upwind approximation
-                Timein(1)=t;
-                [Timein_dz]=dss012(0.0,zl,n,Timein,v);
+                Tin(1)=t;
+                [Tin_dz]=dss012(0.0,zl,n,Tin,v);
             end
             
             % Temporal derivative
-            Timein_dt(1)=0;
-            Temperaturein_dt(1)=0;
+            Tin_dt(1)=0;
             for i=2:n
-                Timein_dt(i)=-func(x,t)*Timein_dz(i);
-                Temperaturein_dt(i)=-func(x,t)*Temperaturein_dz(i);
-            end            
-
-            % Take Euler step                
-                x=x+h*func(x,t);
+                Tin_dt(i)=-v*Tin_dz(i);     % f(t,y)=dy/dt, v是常量，和时间无关，Tin_dz也和时间无关
+            end
+            
+            for iout1=1:d
+            % Take Euler step   
+                x=x+f*h1;         % 用小步长，到达x=length更精确
+                t1=t1+h1;
+            end
 
             for i=1:n
-                Timein(i)=Timein(i)+Timein_dt(i)*h;
-                Temperaturein(i)=Temperaturein(i)+Temperaturein_dt(i)*h;            %这是一组ODE，后面的变化速率要远远慢于前面
-            end
-                  
-        t=t+h;
-    end
-    t=0;
-    x=0;
-    for i=1:n
-        Timein(i)=t0;
-        Temperaturein(i)=Temperaturein(n);
-    end
-end  
-
-toc
-%% Calculate the outlet temperature
-delayInletTemperature=delayInletTemperature';
-h2=0.01;
-outTime=[];
-outletTem=[initialTemperature,initialTemperature];
-t=0;
-
-for j=1:length(TimeSpan)          
-count=0;
-    while t<tf
-                
-        if  t>=TimeDelay       
-            tau=max(0,t-TimeDelay-TimeSpan(j));
-            if tau >0
-                outletTem(end+1)=ambTemperature+(delayInletTemperature(j)-ambTemperature)*exp(-tau/tauRC);
-                
-                if abs(outletTem(end)-outletTem(end-1:end))<1e-2
-                        count=count+h2;
-                end
-                if count>7
-                    outletTemperature(end+1)=outletTem(end);
-                    outTime(end+1)=t;
-                    t=t+h2;
-                    break;
-                end
+                Tin(i)=Tin(i)+Tin_dt(i)*h2;      % 用大步长
             end
 
+            % 龙格库塔比欧拉对Tin（n）更精确一点
+%             for i=1:n
+%                 k1=Tin_dt(i);
+%                 k2=Tin_dt(i)+h2*k1/2;
+%                 k3=Tin_dt(i)+h2*k2/2;
+%                 k4=Tin_dt(i)+h2*k3;
+%                 Tin(i)=Tin(i)+1/6*(k1+2*k2+2*k3+k4)*h2;
+%             end
+
+            t2=t2+h2;
+            
+            t=t1;
+        % Next Euler step    
         end
-        t=t+h2;
-    end
+        
+toc
 
-end    
-
-%% 绘图
-measureTemperature=PipeData(:,4);
-outletTem(1:2)=[];
-delayInletTemperature=[initialTemperature;delayInletTemperature];
-delayInletTimeSpan=[0;TimeSpan+TimeDelay];
-for k =1:length(delayInletTimeSpan)
-    if delayInletTimeSpan(k)>600
-        delayInletTimeSpan(k:end)=[];
-        delayInletTemperature(k:end)=[];
-        break;
-    end
-end
-outletTemperature=[initialTemperature,outletTemperature];
-outTime=[0,outTime];
-for k=1:length(outTime)
-    if outTime(k)>600
-        outTime(k:end)=[];
-        outletTemperature(k:end)=[];
-        break;
-    end
-end
-plot(TimeSpan,inletTemperature,'black-.',delayInletTimeSpan,delayInletTemperature,'red--', ...
-        outTime,outletTemperature,'green',TimeSpan,measureTemperature,'blue');
-
-%% v(t)
-function dx=func(x,t)
-v=0.589/1000/pi/0.05248^2*4;      
-dx=v;
-end
 %% Centered approximations
 
 function [ux]=dss002(xl,xu,n,u)
